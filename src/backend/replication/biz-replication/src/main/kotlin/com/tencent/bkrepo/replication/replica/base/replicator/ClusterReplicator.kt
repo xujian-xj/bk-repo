@@ -296,17 +296,6 @@ class ClusterReplicator(
         with(context) {
             // 外部集群仓库没有project/repoName
             if (remoteProjectId.isNullOrBlank() || remoteRepoName.isNullOrBlank()) return null
-            val fullPath = "${node.projectId}/${node.repoName}${node.fullPath}"
-            // 节点冲突检查
-            if (artifactReplicaClient!!.checkNodeExist(remoteProjectId, remoteRepoName, node.fullPath).data == true) {
-                when (task.setting.conflictStrategy) {
-                    ConflictStrategy.SKIP -> return null
-                    ConflictStrategy.FAST_FAIL -> throw IllegalArgumentException("File[$fullPath] conflict.")
-                    else -> {
-                        // do nothing
-                    }
-                }
-            }
             // 查询元数据
             val metadata = if (task.setting.includeMetadata) node.nodeMetadata else emptyList()
             return NodeCreateRequest(

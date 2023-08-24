@@ -40,6 +40,7 @@ const val BATCH_SIZE = 1000
 /**
  * 数据库字段
  */
+const val ID = "_id"
 const val SHA256 = "sha256"
 const val PROJECT = "projectId"
 const val REPO = "repoName"
@@ -51,6 +52,10 @@ const val CATEGORY = "category"
 const val CREATED_DATE = "createdDate"
 const val LAST_MODIFIED_DATE = "lastModifiedDate"
 const val DELETED_DATE = "deleted"
+const val KEY = "key"
+const val RECORD_RESERVE_DAYS = "recordReserveDays"
+const val REPLICA_TYPE = "replicaType"
+const val REPLICA_OBJECT_TYPE = "replicaObjectType"
 
 /**
  * metrics

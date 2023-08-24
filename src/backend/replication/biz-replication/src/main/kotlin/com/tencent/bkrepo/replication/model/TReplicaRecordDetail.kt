@@ -32,6 +32,7 @@ import com.tencent.bkrepo.replication.pojo.record.ExecutionStatus
 import com.tencent.bkrepo.replication.pojo.record.ReplicaProgress
 import com.tencent.bkrepo.replication.pojo.task.objects.PackageConstraint
 import com.tencent.bkrepo.replication.pojo.task.objects.PathConstraint
+import com.tencent.bkrepo.replication.pojo.task.setting.ConflictStrategy
 import org.springframework.data.mongodb.core.index.Indexed
 import org.springframework.data.mongodb.core.mapping.Document
 import java.time.LocalDateTime
@@ -73,12 +74,27 @@ data class TReplicaRecordDetail(
      */
     val pathConstraint: PathConstraint? = null,
     /**
+     * 制品名称，Generic 为 fullPath
+     */
+    val artifactName: String? = null,
+
+    /**
+     * 依赖源包版本
+     */
+    val version: String? = null,
+
+    /**
+     * 冲突策略
+     */
+    val conflictStrategy: ConflictStrategy? = null,
+    /**
      * 运行状态
      */
     var status: ExecutionStatus,
     /**
      * 同步进度
      */
+    @Deprecated("一条记录对应一个制品，不需要同步进度")
     val progress: ReplicaProgress,
     /**
      * 开启时间

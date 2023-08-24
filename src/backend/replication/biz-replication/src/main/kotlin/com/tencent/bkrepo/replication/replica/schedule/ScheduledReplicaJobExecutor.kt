@@ -71,11 +71,11 @@ class ScheduledReplicaJobExecutor(
             // 开启新的同步记录
             val taskRecord = replicaRecordService.startNewRecord(task.key).apply { recordId = id }
             val result = task.remoteClusters.map { submit(taskDetail, taskRecord, it) }.map { it.get() }
-            result.forEach {
-                if (it.status == ExecutionStatus.FAILED) {
-                    status = ExecutionStatus.FAILED
-                    errorReason = "部分数据同步失败"
-                }
+            val failedResults = result.filter { it.status == ExecutionStatus.FAILED }
+            if (failedResults.isNotEmpty()) {
+                status = ExecutionStatus.FAILED
+                errorReason = "部分数据同步失败 "
+                failedResults.map { errorReason += it.errorReason ?: "" }
             }
         } catch (exception: Exception) {
             logger.error("提交同步任务失败", exception)

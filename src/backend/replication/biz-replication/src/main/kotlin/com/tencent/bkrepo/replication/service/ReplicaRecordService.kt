@@ -30,6 +30,7 @@ package com.tencent.bkrepo.replication.service
 import com.tencent.bkrepo.common.api.pojo.Page
 import com.tencent.bkrepo.replication.pojo.record.ExecutionResult
 import com.tencent.bkrepo.replication.pojo.record.ExecutionStatus
+import com.tencent.bkrepo.replication.pojo.record.RecordOverview
 import com.tencent.bkrepo.replication.pojo.record.ReplicaProgress
 import com.tencent.bkrepo.replication.pojo.record.ReplicaRecordDetail
 import com.tencent.bkrepo.replication.pojo.record.ReplicaRecordDetailListOption
@@ -160,4 +161,20 @@ interface ReplicaRecordService {
      * 边缘节点回写记录到中心节点
      */
     fun writeBack(replicaRecordInfo: ReplicaRecordInfo)
+
+    /**
+     * 删除时间段内的分发记录
+     */
+    fun deleteRecord(key: String, startTime: String, endTime: String): Long
+
+
+    /**
+     * 根据[id]删除执行记录详情
+     */
+    fun deleteRecordDetailById(id: String)
+
+    /**
+     * 查询执行日志详情总览
+     */
+    fun recordDetailOverview(recordId: String): RecordOverview
 }

@@ -98,8 +98,11 @@ open class AbstractReplicaJobExecutor(
                 }
                 ExecutionResult(status = status, errorReason = message)
             } catch (exception: Throwable) {
-                logger.error("同步任务执行失败", exception)
-                ExecutionResult.fail(exception.message)
+                logger.error(
+                    "task[${taskDetail.task.key}/${taskDetail.task.name}" +
+                        "/$clusterNodeName] replica exception:[${exception}]"
+                )
+                ExecutionResult.fail("${clusterNodeName.name}:${exception.message}\n")
             }
         }.trace()
         )
