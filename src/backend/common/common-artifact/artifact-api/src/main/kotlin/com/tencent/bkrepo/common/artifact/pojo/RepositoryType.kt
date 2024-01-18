@@ -50,6 +50,9 @@ enum class RepositoryType {
     OCI,
     CONAN,
     LFS,
+    DDC,
+    SVN,
+    S3
     ;
 
     companion object {

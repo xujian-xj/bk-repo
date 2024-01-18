@@ -29,6 +29,7 @@ package com.tencent.bkrepo.analyst.dispatcher
 
 import com.tencent.bkrepo.analyst.configuration.ScannerProperties
 import com.tencent.bkrepo.analyst.dispatcher.dsl.addContainerItem
+import com.tencent.bkrepo.analyst.dispatcher.dsl.addImagePullSecretsItemIfNeed
 import com.tencent.bkrepo.analyst.dispatcher.dsl.limits
 import com.tencent.bkrepo.analyst.dispatcher.dsl.metadata
 import com.tencent.bkrepo.analyst.dispatcher.dsl.requests
@@ -48,6 +49,7 @@ import io.kubernetes.client.openapi.ApiException
 import io.kubernetes.client.openapi.apis.BatchV1Api
 import io.kubernetes.client.openapi.apis.CoreV1Api
 import org.slf4j.LoggerFactory
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor
 import java.time.Duration
 import kotlin.math.max
 import kotlin.math.min
@@ -58,8 +60,14 @@ class KubernetesDispatcher(
     scanService: ScanService,
     subtaskStateMachine: StateMachine,
     temporaryScanTokenService: TemporaryScanTokenService,
+    executor: ThreadPoolTaskExecutor,
 ) : SubtaskPushDispatcher<KubernetesJobExecutionCluster>(
-    executionCluster, scannerProperties, scanService, subtaskStateMachine, temporaryScanTokenService
+    executionCluster,
+    scannerProperties,
+    scanService,
+    subtaskStateMachine,
+    temporaryScanTokenService,
+    executor,
 ) {
 
     private val client by lazy { createClient(executionCluster.kubernetesProperties) }
@@ -67,7 +75,6 @@ class KubernetesDispatcher(
     private val batchV1Api by lazy { BatchV1Api(client) }
 
     override fun dispatch(subtask: SubScanTask): Boolean {
-        logger.info("dispatch subtask[${subtask.taskId}] with ${executionCluster.name}")
         var result = false
         var retry = true
         var retryTimes = MAX_RETRY_TIMES
@@ -149,6 +156,8 @@ class KubernetesDispatcher(
         val jobActiveDeadlineSeconds = subtask.scanner.maxScanDuration(subtask.packageSize)
         val k8sProps = executionCluster.kubernetesProperties
         val body = v1Job {
+            apiVersion = "batch/v1"
+            kind = "Job"
             metadata {
                 namespace = k8sProps.namespace
                 name = jobName
@@ -163,6 +172,7 @@ class KubernetesDispatcher(
                             name = jobName
                             image = containerImage
                             command = cmd
+                            addImagePullSecretsItemIfNeed(scanner, k8sProps)
                             resources {
                                 requests(
                                     cpu = k8sProps.requestCpu,
@@ -197,17 +207,9 @@ class KubernetesDispatcher(
     private fun resolveCreateJobFailed(e: ApiException, subtask: SubScanTask): Boolean {
         // 处理job名称冲突的情况
         if (e.code == HttpStatus.CONFLICT.value) {
-            logger.warn("subtask[${subtask.taskId}] job already exists, try to clean")
-            val jobName = jobName(subtask)
-            val namespace = executionCluster.kubernetesProperties.namespace
-            val job = batchV1Api.readNamespacedJob(jobName, namespace, null, null, null)
-            val failed = job.status?.failed ?: 0
-            // 只清理失败的job，因为成功的job说明结果也上报成功了，不需要再次分发
-            return if (failed > 0) {
-                cleanJob(jobName)
-            } else {
-                false
-            }
+            val cleaned = cleanJob(jobName(subtask))
+            logger.warn("subtask[${subtask.taskId}] job already exists, cleaned[$cleaned]")
+            return cleaned
         }
 
         logger.error("subtask[${subtask.taskId}] dispatch failed\n, ${e.string()}")
@@ -219,7 +221,14 @@ class KubernetesDispatcher(
         return ignoreApiException {
             val namespace = executionCluster.kubernetesProperties.namespace
             batchV1Api.deleteNamespacedJob(
-                jobName, namespace, null, null, null, null, "Foreground", null
+                jobName,
+                namespace,
+                null,
+                null,
+                null,
+                null,
+                "Foreground",
+                null
             )
             logger.info("job[$jobName] clean success")
             true

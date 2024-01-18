@@ -38,7 +38,6 @@ import com.tencent.bkrepo.common.artifact.metrics.RecordAbleInputStream
 import com.tencent.bkrepo.common.artifact.path.PathUtils
 import com.tencent.bkrepo.common.artifact.stream.ArtifactInputStream
 import com.tencent.bkrepo.common.artifact.stream.Range
-import com.tencent.bkrepo.common.artifact.stream.STREAM_BUFFER_SIZE
 import com.tencent.bkrepo.common.artifact.stream.closeQuietly
 import com.tencent.bkrepo.common.artifact.stream.rateLimit
 import com.tencent.bkrepo.common.artifact.util.http.HttpHeaderUtils.determineMediaType
@@ -64,10 +63,11 @@ import javax.servlet.http.HttpServletResponse
  */
 open class DefaultArtifactResourceWriter(
     private val storageProperties: StorageProperties
-) : ArtifactResourceWriter {
+) : AbstractArtifactResourceHandler(storageProperties) {
 
     @Throws(ArtifactResponseException::class)
     override fun write(resource: ArtifactResource): Throughput {
+        responseRateLimitCheck()
         return if (resource.containsMultiArtifact()) {
             writeMultiArtifact(resource)
         } else {
@@ -148,14 +148,6 @@ open class DefaultArtifactResourceWriter(
     }
 
     /**
-     * 解析响应状态
-     */
-    private fun resolveStatus(request: HttpServletRequest): Int {
-        val isRangeRequest = request.getHeader(HttpHeaders.RANGE)?.isNotBlank() ?: false
-        return if (isRangeRequest) HttpStatus.PARTIAL_CONTENT.value else HttpStatus.OK.value
-    }
-
-    /**
      * 解析content range
      */
     private fun resolveContentRange(range: Range): String {
@@ -168,39 +160,6 @@ open class DefaultArtifactResourceWriter(
     private fun resolveLastModified(lastModifiedDate: String): Long {
         val localDateTime = LocalDateTime.parse(lastModifiedDate, DateTimeFormatter.ISO_DATE_TIME)
         return localDateTime.atZone(ZoneOffset.systemDefault()).toInstant().toEpochMilli()
-    }
-
-    /**
-     * 将数据流以Range方式写入响应
-     */
-    private fun writeRangeStream(
-        resource: ArtifactResource,
-        request: HttpServletRequest,
-        response: HttpServletResponse
-    ): Throughput {
-        val inputStream = resource.getSingleStream()
-        if (request.method == HttpMethod.HEAD.name) {
-            return Throughput.EMPTY
-        }
-        val recordAbleInputStream = RecordAbleInputStream(inputStream)
-        try {
-            return measureThroughput {
-                recordAbleInputStream.rateLimit(storageProperties.response.rateLimit.toBytes()).use {
-                    it.copyTo(
-                        out = response.outputStream,
-                        bufferSize = getBufferSize(inputStream.range.length.toInt())
-                    )
-                }
-            }
-        } catch (exception: IOException) {
-            // 直接向上抛IOException经过CglibAopProxy会抛java.lang.reflect.UndeclaredThrowableException: null
-            // 由于已经设置了Content-Type为application/octet-stream, spring找不到对应的Converter，导致抛
-            // org.springframework.http.converter.HttpMessageNotWritableException异常，会重定向到/error页面
-            // 又因为/error页面不存在，最终返回404，所以要对IOException进行包装，在上一层捕捉处理
-            val message = exception.message.orEmpty()
-            val status = if (isClientBroken(exception)) HttpStatus.BAD_REQUEST else HttpStatus.INTERNAL_SERVER_ERROR
-            throw ArtifactResponseException(message, status)
-        }
     }
 
     /**
@@ -222,7 +181,9 @@ open class DefaultArtifactResourceWriter(
                     resource.artifactMap.forEach { (name, inputStream) ->
                         val recordAbleInputStream = RecordAbleInputStream(inputStream)
                         zipOutput.putNextEntry(generateZipEntry(name, inputStream))
-                        recordAbleInputStream.rateLimit(storageProperties.response.rateLimit.toBytes()).use {
+                        recordAbleInputStream.rateLimit(
+                            responseRateLimitWrapper(storageProperties.response.rateLimit)
+                        ).use {
                             it.copyTo(
                                 out = zipOutput,
                                 bufferSize = getBufferSize(inputStream.range.length.toInt())
@@ -257,18 +218,6 @@ open class DefaultArtifactResourceWriter(
      */
     private fun resolveETag(node: NodeDetail): String {
         return node.sha256!!
-    }
-
-    /**
-     * 获取动态buffer size
-     * @param totalSize 数据总大小
-     */
-    private fun getBufferSize(totalSize: Int): Int {
-        val bufferSize = storageProperties.response.bufferSize.toBytes().toInt()
-        if (bufferSize < 0 || totalSize < 0) {
-            return STREAM_BUFFER_SIZE
-        }
-        return if (totalSize < bufferSize) totalSize else bufferSize
     }
 
     /**
